@@ -4,6 +4,11 @@
 下面写清已完成的部分、四个阻塞项、以及每一项的确切修法。**没有任何 Evidence，也没有任何
 Baseline 被推进**：本地 PASS 只是诊断。
 
+> **更新（IT-002）**：阻塞项 1 已解决——`.agent/slices/S1.yaml` 已在本轮 bootstrap 窗口内落盘并提交，
+> `verify.mjs --slice S1` 已能解析该 Slice 并进入六道门（本机诊断：只有 `slice_acceptance` 未过，
+> 失败点仍是下面第 3 项的 `A-AUTHZ-001`；`build`、`clean_boot`、`persistence_migration`、
+> `regression_spine` 通过，`deployment` 声明 `local: skip`）。下面第 1 节保留为历史记录。
+
 ## 一、已完成并已推送
 
 | 区域 | 内容 |

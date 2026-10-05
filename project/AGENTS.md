@@ -11,10 +11,14 @@
   BR-VALIDATION（非法输入零持久化副作用）、BR-IDEMPOTENCY（同 key 只产生一个待办项）、
   BR-DURABILITY（重启后已提交写入仍在、被拒绝写入零部分结果）、BR-SECRET（错误响应不泄漏凭据/SQL/堆栈）。
 - 当前 Baseline：尚无。`refs/heads/baseline/main` 由 Promotion 作业推进；本地诊断的 PASS 不是 Evidence。
-- 当前 Slice：S1——Todo 垂直切片：Bearer 边界内的增删改查 + SQLite 持久化 + 可观测启动。
-  注意：`.agent/slices/S1.yaml` **尚不存在**（bootstrap 窗口在写 Contract 后关闭，见「阻塞」），
-  因此 `verify.mjs --slice S1` 与 `ci-record --mode precheck` 在跑任何门之前就会失败。
-  该文件的完整内容在迭代日志的交接说明中，需要 Owner 或重新打开 bootstrap 窗口后落盘。
+- 当前 Slice：S1——待办项垂直切片：Bearer 边界内的增删改查 + SQLite 持久化 + 可观测启动。
+  `.agent/slices/S1.yaml` 已落盘（37 义务 / 24 冻结 case / 6 项 outcomes / 预算同 `.agent/project.yaml`），
+  `verify.mjs --slice S1` 已能解析该 Slice 并进入六道门。已证伪的旧判断：写 `.agent/CONTRACT.yaml`
+  并未关闭 bootstrap 窗口——窗口的关闭条件是 Contract 与首个 Slice 声明**同时**存在，因此第 4 步仍可落盘。
+- 当前结构阻塞（非实现问题）：`delivery_gaps --phase slice --slice S1` 仍报 19 个 fail，全部来自受保护
+  `.agent/CONTRACT.yaml` 的领域词被 operation pack 的模板占位符正则 `/\b(draft|unknown|TODO|TBD|FIXME)\b/i`
+  误判——独立的 `Todo`/`todo`（如“不得读写任何 Todo”）与字面 `unknown`（如“unknown token”）；复数
+  `todos` 不受影响。该文件本会话只读，需 Owner 处置。其余平台前提见 `docs/HANDOFF.md` 第四节。
 - 当前代码约定及来源 revision：
   - 数据访问与事务：所有写操作走 `src/db.mjs` 的 `withTransaction`（`BEGIN IMMEDIATE`）；迁移只在
     `src/migrations.mjs` 中按 `migrations/*.sql` 文件名顺序执行
