@@ -1,0 +1,295 @@
+name: promote
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Promotion entry
+        required: true
+        type: choice
+        options: [promote-baseline, standards-update, MVP_READY, bootstrap-state, record-attempt, resolve-diagnostic]
+      bootstrap_owner:
+        description: Explicit owner actor approving initial durable state only
+        required: false
+      bootstrap_seed:
+        description: Owner-approved initial history decision; never reset an existing state
+        required: true
+        type: choice
+        options: [existing-ledger, owner-approved-empty]
+        default: existing-ledger
+      verify_run_id:
+        description: Completed verify run ID for promotion or exact collector retry
+        required: false
+      verify_run_attempt:
+        description: Exact verify attempt for promotion or collector retry
+        required: false
+      resolution_owner:
+        description: Exact owner actor approving retention of a counted failure
+        required: false
+      resolution_confirmation:
+        description: Reviewed diagnostic confirmation reference, not a placeholder
+        required: false
+      expected_state_sha:
+        description: Exact current delivery-state SHA reviewed for diagnostic resolution
+        required: false
+      expected_parent:
+        description: Expected baseline ID, or none
+        required: true
+        default: none
+      owner_approval_ref:
+        description: Exact product-owner issue comment URL containing bound delivery-approval JSON (MVP_READY only)
+        required: false
+  workflow_run:
+    workflows: [verify]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: delivery-state-main
+  cancel-in-progress: false
+jobs:
+  record-attempt:
+    if: (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'record-attempt' && github.ref == 'refs/heads/main')
+    name: persist exact verification attempt
+    runs-on: ubuntu-latest
+    environment: delivery-state-recording
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Authenticate completed run attempt and write transport receipt
+        id: source
+        env:
+          REQUESTED_RUN_ID: ${{ inputs.verify_run_id || '' }}
+          REQUESTED_RUN_ATTEMPT: ${{ inputs.verify_run_attempt || '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = context.eventName === 'workflow_run' ? context.payload.workflow_run.id : Number(process.env.REQUESTED_RUN_ID);
+            const attempt_number = context.eventName === 'workflow_run' ? context.payload.workflow_run.run_attempt : Number(process.env.REQUESTED_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(run_id) || run_id < 1 || !Number.isSafeInteger(attempt_number) || attempt_number < 1) throw new Error('positive exact run-attempt required');
+            const { data: run } = await github.rest.actions.getWorkflowRunAttempt({ ...context.repo, run_id, attempt_number });
+            if (run.repository.full_name !== `${context.repo.owner}/${context.repo.repo}` || run.path !== '.github/workflows/verify.yml' || run.event !== 'workflow_dispatch' || run.head_branch !== 'main' || run.status !== 'completed' || run.id !== run_id || run.run_attempt !== attempt_number) throw new Error('untrusted verification source');
+            require('node:fs').writeFileSync('provenance-receipt.json', JSON.stringify({ repository: `${context.repo.owner}/${context.repo.repo}`, run_id, run_attempt: attempt_number }));
+            core.setOutput('run_id', String(run_id));
+            core.setOutput('run_attempt', String(attempt_number));
+      - name: Download exact success or failure artifact
+        id: report
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: verify-report-${{ steps.source.outputs.run_id }}-${{ steps.source.outputs.run_attempt }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: downloaded
+      - name: Record evidence or blocking diagnostic using state-only credentials
+        if: always() && !cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_PUSH_TOKEN: ${{ secrets.STATE_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_PUSH_TOKEN"
+          test -f provenance-receipt.json
+          git config http.extraHeader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$STATE_PUSH_TOKEN" | base64 -w0)"
+          node ci/tools/ci-record.mjs --mode record --repo . --project project --receipt provenance-receipt.json --evidence-dir downloaded
+  resolve-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'resolve-diagnostic' && github.ref == 'refs/heads/main'
+    name: owner-reviewed retention of a counted failure
+    runs-on: ubuntu-latest
+    environment: delivery-state-resolution
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Append resolution without changing failure or Baseline
+        env:
+          STATE_PUSH_TOKEN: ${{ secrets.STATE_PUSH_TOKEN }}
+          DSH_GITHUB_READ_TOKEN: ${{ github.token }}
+          DSH_RESOLUTION_ENVIRONMENT: delivery-state-resolution
+          DSH_RESOLUTION_OWNER: ${{ inputs.resolution_owner }}
+          EXPECTED_STATE: ${{ inputs.expected_state_sha }}
+          SOURCE_RUN: ${{ inputs.verify_run_id }}
+          SOURCE_ATTEMPT: ${{ inputs.verify_run_attempt }}
+          CONFIRMATION_REF: ${{ inputs.resolution_confirmation }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_PUSH_TOKEN"
+          [[ "$EXPECTED_STATE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_RUN" =~ ^[1-9][0-9]*$ && "$SOURCE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          git config http.extraHeader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$STATE_PUSH_TOKEN" | base64 -w0)"
+          git fetch --no-tags origin refs/heads/delivery-state/main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_STATE"
+          node ci/tools/ci-state-snapshot.mjs --check-tree "$EXPECTED_STATE"
+          git -c core.autocrlf=false archive --output=state.tar "$EXPECTED_STATE" project
+          tar -xf state.tar
+          node ci/tools/ci-record.mjs --mode resolve-diagnostic --repo . --project project --environment delivery-state-resolution --owner "$DSH_RESOLUTION_OWNER" --expected-state "$EXPECTED_STATE" --diagnostic-run "$SOURCE_RUN-$SOURCE_ATTEMPT" --confirmation-ref "$CONFIRMATION_REF"
+  bootstrap-state:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bootstrap-state' && github.ref == 'refs/heads/main'
+    name: owner-approved first state initialization
+    runs-on: ubuntu-latest
+    environment: delivery-state-bootstrap
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Seed ledger without resetting an existing ref
+        env:
+          STATE_PUSH_TOKEN: ${{ secrets.STATE_PUSH_TOKEN }}
+          DSH_BOOTSTRAP_OWNER: ${{ inputs.bootstrap_owner }}
+          DSH_BOOTSTRAP_ENVIRONMENT: delivery-state-bootstrap
+          DSH_GITHUB_READ_TOKEN: ${{ github.token }}
+          BOOTSTRAP_SEED: ${{ inputs.bootstrap_seed }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_PUSH_TOKEN"
+          git config http.extraHeader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$STATE_PUSH_TOKEN" | base64 -w0)"
+          node ci/tools/ci-record.mjs --mode bootstrap --repo . --project project --owner "$DSH_BOOTSTRAP_OWNER" --environment "$DSH_BOOTSTRAP_ENVIRONMENT" --seed "$BOOTSTRAP_SEED"
+  standards-update:
+    if: github.event.inputs.mode == 'standards-update' && github.ref_name == github.event.repository.default_branch
+    name: freeze an append-only standard update
+    runs-on: ubuntu-latest
+    environment: standards-freeze
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Freeze only provable append with explicit lease
+        env:
+          GH_TOKEN: ${{ secrets.STANDARDS_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          git fetch --no-tags origin refs/heads/standards/acceptance
+          OLD_SHA=$(git rev-parse FETCH_HEAD)
+          node ci/tools/ci-standards-diff.mjs --repo . --old-ref "$OLD_SHA" --new-ref "$GITHUB_SHA"
+          git -c "http.extraHeader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" push --force-with-lease="refs/heads/standards/acceptance:$OLD_SHA" origin "$GITHUB_SHA:refs/heads/standards/acceptance"
+  promote-baseline:
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'promote-baseline' || inputs.mode == 'MVP_READY') && github.ref == 'refs/heads/main'
+    name: promote a verified candidate
+    runs-on: ubuntu-latest
+    environment: baseline-promotion
+    permissions:
+      contents: read
+      actions: read
+      # Automatic completion observes the required checks on the candidate and the
+      # protected refs from the platform instead of accepting a human assertion.
+      checks: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Authenticate exact successful verification source
+        uses: actions/github-script@v7
+        env:
+          VERIFY_RUN_ID: ${{ inputs.verify_run_id }}
+          VERIFY_RUN_ATTEMPT: ${{ inputs.verify_run_attempt }}
+        with:
+          script: |
+            const run_id = Number(process.env.VERIFY_RUN_ID);
+            const attempt_number = Number(process.env.VERIFY_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(run_id) || run_id < 1 || !Number.isSafeInteger(attempt_number) || attempt_number < 1) throw new Error('invalid run identity');
+            const { data: run } = await github.rest.actions.getWorkflowRunAttempt({ ...context.repo, run_id, attempt_number });
+            if (run.repository.full_name !== `${context.repo.owner}/${context.repo.repo}` || run.path !== '.github/workflows/verify.yml' || run.event !== 'workflow_dispatch' || run.head_branch !== 'main' || run.status !== 'completed' || run.conclusion !== 'success' || run.run_attempt !== attempt_number) throw new Error('untrusted verification source');
+            core.exportVariable('DSH_VERIFY_RUN_ID', `${run_id}-${attempt_number}`);
+            core.exportVariable('DSH_VERIFIER_REVISION', run.head_sha);
+            require('node:fs').writeFileSync('provenance-receipt.json', JSON.stringify({ repository: `${context.repo.owner}/${context.repo.repo}`, run_id, run_attempt: attempt_number }));
+            core.exportVariable('DSH_PROVENANCE_RECEIPT', `${process.cwd()}/provenance-receipt.json`);
+      - name: Download exact cross-run evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: verify-report-${{ inputs.verify_run_id }}-${{ inputs.verify_run_attempt }}
+          run-id: ${{ inputs.verify_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: downloaded
+      - name: Restore durable baseline state
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/standards/acceptance
+          STANDARD_SHA=$(git rev-parse FETCH_HEAD)
+          git archive "$STANDARD_SHA" project | tar -x
+          git show HEAD:project/ci/verifier.yaml > project/ci/verifier.yaml
+          git ls-remote --exit-code origin refs/heads/delivery-state/main > /dev/null
+          git fetch --no-tags origin refs/heads/delivery-state/main
+          STATE_SHA=$(git rev-parse FETCH_HEAD)
+          node ci/tools/ci-state-snapshot.mjs --check-tree "$STATE_SHA"
+          git archive "$STATE_SHA" project | tar -x
+          echo "DSH_STATE_REVISION=$STATE_SHA" >> "$GITHUB_ENV"
+          test -f project/.agent/attempts.jsonl
+          git fetch --no-tags origin refs/heads/standards/acceptance
+          echo "DSH_STANDARD_REVISION=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_ENV"
+      - name: Report runtime isolation as a warning
+        run: |
+          echo "note: candidate runtime isolation is not implemented or attested; it is recorded in the baseline metadata as a warning and does not block this promotion (owner decision)." >&2
+      - name: Validate then conditionally promote without executing Candidate
+        env:
+          GH_TOKEN: ${{ secrets.BASELINE_PUSH_TOKEN }}
+          DSH_GITHUB_READ_TOKEN: ${{ github.token }}
+          DSH_DEFAULT_BRANCH: main
+          # The baseline metadata and the spine manifest must name the run that promoted
+          # them; without this the durable record says "local-dry-run" and the promoting
+          # run becomes unattributable.
+          DSH_CI_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          EXPECTED_PARENT: ${{ inputs.expected_parent }}
+          PROMOTION_MODE: ${{ inputs.mode }}
+          DSH_OWNER_APPROVAL_REF: ${{ inputs.owner_approval_ref }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          test "${{ vars.VERIFY_MACHINE_ID }}" != "${{ vars.PROMOTION_MACHINE_ID }}"
+          test -n "${{ vars.VERIFY_MACHINE_ID }}"
+          test -n "${{ vars.PROMOTION_MACHINE_ID }}"
+          git config http.extraHeader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          node ci/tools/ci-promote.mjs --project project --evidence-dir ../downloaded --expected-parent "$EXPECTED_PARENT" --mode "$PROMOTION_MODE" --dry-run
+          node ci/tools/ci-promote.mjs --project project --evidence-dir ../downloaded --expected-parent "$EXPECTED_PARENT" --mode "$PROMOTION_MODE" --apply
+      - name: Retain promotion state even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promotion-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            project/ci/baseline/**
+            project/ci/evidence/**
+            project/.agent/attempts.jsonl
+            project/.agent/reviews.yaml
+            project/.agent/STANDARD_CHANGES.yaml
+            project/ci/mvp-ready.json
+            project/ci/recording/mvp-finalizations/**
+            project/tests/spine/manifest.yaml
+          retention-days: 90

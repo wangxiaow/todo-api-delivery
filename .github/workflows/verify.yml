@@ -1,0 +1,153 @@
+name: verify
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Frozen candidate commit or ref
+        required: true
+      parent_baseline:
+        description: Expected baseline ID, or none
+        required: true
+        default: none
+      slice_id:
+        description: Approved Slice ID from frozen standards
+        required: true
+        default: S1
+      sliceKey:
+        description: Stable key declared by the approved Slice
+        required: true
+        default: S1
+      hypothesis:
+        description: Falsifiable hypothesis for this exact attempt
+        required: true
+      comparisonApprovalRef:
+        description: Optional owner-approved standard rebase record from frozen STANDARD_CHANGES.yaml
+        required: false
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: verify-${{ github.event.inputs.candidate_ref || github.ref }}
+  cancel-in-progress: false
+jobs:
+  structural:
+    name: structural checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Freeze and compare both nonempty project acceptance trees
+        env:
+          CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$CANDIDATE_REF"
+          CANDIDATE_SHA=$(git rev-parse FETCH_HEAD)
+          git fetch --no-tags origin refs/heads/standards/acceptance
+          STANDARD_SHA=$(git rev-parse FETCH_HEAD)
+          node ci/tools/ci-spec-diff.mjs --repo . --candidate-ref "$CANDIDATE_SHA" --protected-ref "$STANDARD_SHA"
+  verify:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    name: verify candidate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment: trusted-verification
+    env:
+      DSH_CI_ISSUER: ci:verify
+      DSH_CI_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      DSH_PARENT_BASELINE: ${{ github.event.inputs.parent_baseline || 'none' }}
+      DSH_SLICE_ID: ${{ inputs.slice_id || 'S1' }}
+      DSH_SLICE_KEY: ${{ inputs.sliceKey || 'S1' }}
+      DSH_HYPOTHESIS: ${{ inputs.hypothesis || 'PR candidate satisfies frozen Slice S1 acceptance' }}
+      DSH_COMPARISON_APPROVAL_REF: ${{ inputs.comparisonApprovalRef || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: canonical
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Freeze candidate and protected standard
+        working-directory: canonical
+        env:
+          CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin $env:CANDIDATE_REF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $candidate = git rev-parse FETCH_HEAD
+          git fetch --no-tags origin refs/heads/standards/acceptance
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $standard = git rev-parse FETCH_HEAD
+          $verifier = git rev-parse HEAD
+          git worktree add --detach ../candidate $candidate
+          git worktree add --detach ../protected $standard
+          node ci/tools/ci-spec-diff.mjs --repo . --candidate-ref $candidate --protected-ref $standard
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "DSH_CANDIDATE=$candidate" >> $env:GITHUB_ENV
+          "DSH_STANDARD_REVISION=$standard" >> $env:GITHUB_ENV
+          "DSH_VERIFIER_REVISION=$verifier" >> $env:GITHUB_ENV
+      - name: Stage protected build and acceptance execution surfaces
+        run: |
+          node canonical/ci/tools/ci-stage.mjs canonical candidate protected staged
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "DSH_PROTECTED_ACCEPTANCE_DIR=$env:GITHUB_WORKSPACE/protected/project/tests/acceptance/spec" >> $env:GITHUB_ENV
+          "DSH_CONFIG_FINGERPRINT=$((Get-FileHash canonical/project/ci/verifier.yaml -Algorithm SHA256).Hash.ToLower())" >> $env:GITHUB_ENV
+          "DSH_FIXTURE_REVISION=$env:DSH_STANDARD_REVISION" >> $env:GITHUB_ENV
+      - name: Restore accumulated Spine and attempts from protected state
+        working-directory: canonical
+        run: |
+          git ls-remote --exit-code origin refs/heads/delivery-state/main
+          if ($LASTEXITCODE -eq 0) {
+            git fetch --no-tags origin refs/heads/delivery-state/main
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $stateSha = (git rev-parse FETCH_HEAD).Trim()
+            node ci/tools/ci-state-snapshot.mjs --check-tree $stateSha
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git -c core.autocrlf=false archive --output=../state.tar $stateSha project
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            tar -xf ../state.tar -C ../staged
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else { throw 'Durable state missing or unreadable; explicit owner-approved bootstrap required' }
+      - name: Check budget and approved Slice before Candidate execution
+        env:
+          DSH_GITHUB_READ_TOKEN: ${{ github.token }}
+        run: |
+          node canonical/ci/tools/ci-record.mjs --mode precheck --repo canonical --project staged/project --slice $env:DSH_SLICE_ID --slice-key $env:DSH_SLICE_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Produce artifact before deployment gate
+        run: |
+          node canonical/ci/tools/verify-artifact.mjs --project staged/project >> $env:GITHUB_ENV
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install the packaged artifact and observe the running revision
+        run: |
+          node canonical/ci/tools/ci-deploy-probe.mjs --project staged/project >> $env:GITHUB_ENV
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run protected verifier without promotion credentials
+        run: |
+          node canonical/packages/delivery-assured/scripts/verify.mjs --project staged/project --candidate $env:DSH_CANDIDATE --parent-baseline $env:DSH_PARENT_BASELINE --slice $env:DSH_SLICE_ID --ci-run-id $env:DSH_CI_RUN_ID --write-evidence --out-dir .agent/evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check artifact bytes unchanged after evidence generation
+        run: |
+          node canonical/ci/tools/verify-artifact.mjs --project staged/project --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain evidence and artifact without rebuilding
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            staged/project/.agent/evidence/**
+            staged/project/.agent/artifact/**
+          if-no-files-found: error
+          retention-days: 90

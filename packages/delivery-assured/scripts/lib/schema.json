@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://delivery-assured.local/schemas/0.5.json",
+  "title": "Delivery-Assured Progressive SE — record schemas (v0.5)",
+  "description": "Authoritative field shapes for the records this operation pack reads and writes. Adopted from the v0.5 operation pack (sections 6, 10, 11, 15 and appendices C and E). CI writes evidence.json, baseline.json, mvp-ready.json and reviews are written outside the Agent's reach.",
+  "$defs": {
+    "revision": {
+      "type": "string",
+      "minLength": 7,
+      "description": "Full or abbreviated commit id, or a content digest. Must not be a placeholder."
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "reference": {
+      "type": "string",
+      "description": "Path, CI run reference, or artifact id of prior evidence."
+    },
+
+    "evidence": {
+      "type": "object",
+      "required": ["evidence_id", "scope", "bindings", "environment", "execution", "issuer"],
+      "additionalProperties": true,
+      "properties": {
+        "evidence_id": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "object",
+          "required": ["slice_id", "obligation_ids", "required_case_ids"],
+          "properties": {
+            "slice_id": { "type": "string" },
+            "obligation_ids": { "type": "array", "items": { "type": "string" } },
+            "required_case_ids": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "bindings": {
+          "type": "object",
+          "required": [
+            "code_revision",
+            "contract_revision",
+            "contract_digest",
+            "acceptance_revision",
+            "acceptance_manifest_digest",
+            "verifier_config_revision",
+            "spine_manifest_digest",
+            "slice_manifest_digest",
+            "acceptance_digest",
+            "verifier_config_digest",
+            "dependency_lock_digest",
+            "migration_digest",
+            "parent_baseline"
+          ],
+          "properties": {
+            "code_revision": { "$ref": "#/$defs/revision" },
+            "contract_revision": { "$ref": "#/$defs/revision" },
+            "contract_digest": { "$ref": "#/$defs/digest" },
+            "acceptance_revision": { "$ref": "#/$defs/revision" },
+            "acceptance_manifest_digest": { "$ref": "#/$defs/digest" },
+            "verifier_config_revision": { "$ref": "#/$defs/revision" },
+            "dependency_lock_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+            "migration_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+            "spine_manifest_digest": { "$ref": "#/$defs/digest" },
+            "slice_manifest_digest": { "$ref": "#/$defs/digest" },
+            "acceptance_digest": { "$ref": "#/$defs/digest" },
+            "verifier_config_digest": { "$ref": "#/$defs/digest" },
+            "parent_baseline": { "type": ["string", "null"] }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "required": ["kind", "image_digest", "config_fingerprint", "deployed_code_revision"],
+          "properties": {
+            "kind": { "enum": ["production_like_ci", "staging", "local_diagnostic"] },
+            "image_digest": { "type": "string" },
+            "config_fingerprint": { "type": "string" },
+            "fixture_revision": { "type": "string" },
+            "deployment_id": { "type": ["string", "null"] },
+            "deployed_code_revision": { "type": "string" },
+            "deployed_image_digest": { "type": "string" }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "required": ["ci_run_id", "result", "required_cases", "executed_cases", "skipped_required_cases", "case_results"],
+          "properties": {
+            "ci_run_id": { "type": "string" },
+            "started_at": { "type": "string" },
+            "finished_at": { "type": "string" },
+            "result": { "enum": ["PASS", "FAIL", "INFRA_ABORTED"] },
+            "required_cases": { "type": "integer", "minimum": 0 },
+            "executed_cases": { "type": "integer", "minimum": 0 },
+            "skipped_required_cases": { "type": "integer", "minimum": 0 },
+            "case_results": { "type": "array", "items": { "$ref": "#/$defs/caseResult" } },
+            "gate_results": { "type": "array", "items": { "$ref": "#/$defs/gateResult" } },
+            "artifacts": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "issuer": {
+          "type": "object",
+          "required": ["identity"],
+          "properties": { "identity": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+
+    "caseResult": {
+      "type": "object",
+      "required": ["case_id", "outcome"],
+      "properties": {
+        "case_id": { "type": "string" },
+        "outcome": { "enum": ["passed", "failed", "skipped", "not_run", "errored"] },
+        "duration_ms": { "type": "integer" },
+        "message": { "type": "string" }
+      }
+    },
+
+    "gateResult": {
+      "type": "object",
+      "required": ["gate", "outcome"],
+      "properties": {
+        "gate": { "enum": ["build", "clean_boot", "persistence_migration", "slice_acceptance", "regression_spine", "deployment"] },
+        "outcome": { "enum": ["passed", "failed", "not_applicable", "not_run"] },
+        "reason": { "type": "string", "description": "Required when the outcome is not_applicable." },
+        "command": { "type": "string" },
+        "exit_code": { "type": ["integer", "null"] },
+        "duration_ms": { "type": "integer" }
+      }
+    },
+
+    "baseline": {
+      "type": "object",
+      "required": ["baseline_id", "protected_ref", "code_revision", "parent_baseline", "verification_scope", "evidence_refs", "promotion_run_id"],
+      "additionalProperties": true,
+      "properties": {
+        "baseline_id": { "type": "string", "pattern": "^BL-[0-9]+$" },
+        "protected_ref": { "type": "string", "pattern": "^refs/heads/baseline/" },
+        "code_revision": { "$ref": "#/$defs/revision" },
+        "parent_baseline": { "type": ["string", "null"] },
+        "contract_revision": { "$ref": "#/$defs/revision" },
+        "acceptance_revision": { "$ref": "#/$defs/revision" },
+        "verifier_config_revision": { "$ref": "#/$defs/revision" },
+        "verification_scope": {
+          "type": "object",
+          "properties": {
+            "machine_verified_outcomes": { "type": "array", "items": { "type": "string" } },
+            "remaining_outcomes": { "type": "array", "items": { "type": "string" } },
+            "manual_reviews_pending": { "type": "array", "items": { "type": "string" } },
+            "spine_manifest_digest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "validated_in": { "enum": ["production_like_ci", "staging", "local_diagnostic"] },
+            "image_digest": { "type": "string" },
+            "migration_digest": { "$ref": "#/$defs/digest" },
+            "staging_deployment_id": { "type": ["string", "null"] }
+          }
+        },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "promotion_run_id": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "slice": {
+      "type": "object",
+      "required": ["id", "status", "obligations", "acceptance", "attempt_budget"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": {
+          "enum": ["PLANNED", "READY", "IMPLEMENTING", "LOCAL_VERIFY", "INTEGRATED_CANDIDATE", "CI_REQUIRED_GATES", "BASELINE_PROMOTION", "VERIFIED_DONE", "BLOCKED"]
+        },
+        "obligations": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "outcomes": { "type": "array", "items": { "type": "string" } },
+        "acceptance": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "baseline": { "type": "string" },
+        "preserve": { "type": "array", "items": { "type": "string" } },
+        "code_conventions": { "type": "array", "items": { "type": "string" } },
+        "attempt_budget": {
+          "type": "object",
+          "properties": {
+            "same_root_cause_limit": { "type": "integer", "minimum": 1 },
+            "total_attempt_limit": { "type": "integer", "minimum": 1 },
+            "no_progress_window": { "type": "integer", "minimum": 1 },
+            "replan_limit": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "migration_steps": { "type": "array", "items": { "type": "string" } },
+        "external_side_effects": { "type": "array", "items": { "type": "string" } },
+        "why_not_vertical": { "type": "string" },
+        "unlocks": { "type": "array", "items": { "type": "string" } },
+        "max_scope": { "type": "string" }
+      }
+    },
+
+    "acceptanceManifest": {
+      "type": "object",
+      "required": ["revision", "cases"],
+      "properties": {
+        "revision": { "type": "integer" },
+        "protected_revision": { "type": "string" },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "obligation_ids", "required", "method", "spec_ref"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^A-[A-Z0-9-]+$" },
+              "obligation_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "outcome_ids": { "type": "array", "items": { "type": "string" } },
+              "required": { "type": "boolean" },
+              "method": { "enum": ["automated", "manual"] },
+              "actors": { "type": "array", "items": { "type": "string" } },
+              "preconditions": { "type": "array", "items": { "type": "string" } },
+              "action": { "type": "string" },
+              "assertions": { "type": "array", "items": { "type": "string" } },
+              "critical_scenarios": { "type": "array", "items": { "type": "string" } },
+              "environments": { "type": "array", "items": { "type": "string" } },
+              "spec_ref": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "attempt": {
+      "type": "object",
+      "required": ["attempt_id", "slice_id", "at", "hypothesis", "result"],
+      "properties": {
+        "attempt_id": { "type": "string" },
+        "slice_id": { "type": "string" },
+        "at": { "type": "string" },
+        "root_cause_key": { "type": "string", "description": "Groups attempts that chase the same root cause." },
+        "hypothesis": { "type": "string" },
+        "result": { "enum": ["passed", "failed", "infra_aborted", "blocked"] },
+        "required_passed": { "type": "integer", "minimum": 0 },
+        "required_total": { "type": "integer", "minimum": 0 },
+        "spine_failures": { "type": "integer", "minimum": 0 },
+        "critical_violations": { "type": "array", "items": { "type": "string" } },
+        "ci_ref": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+
+    "replan": {
+      "type": "object",
+      "required": ["slice_id", "falsified_assumption", "previous_approach", "new_approach", "next_discriminating_checks", "preserved_obligations", "scope_changed"],
+      "properties": {
+        "slice_id": { "type": "string" },
+        "falsified_assumption": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "previous_approach": { "type": "string", "minLength": 1 },
+        "new_approach": { "type": "string", "minLength": 1 },
+        "next_discriminating_checks": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "preserved_obligations": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "scope_changed": { "type": "boolean" }
+      }
+    },
+
+    "review": {
+      "type": "object",
+      "required": ["review_id", "reviewer", "confirmation_ref", "bindings", "journeys_reviewed", "result", "reviewed_at"],
+      "properties": {
+        "review_id": { "type": "string" },
+        "reviewer": { "type": "string" },
+        "confirmation_ref": { "type": "string", "minLength": 1, "description": "Approval record the Agent cannot forge." },
+        "bindings": {
+          "type": "object",
+          "required": ["code_revision", "contract_revision", "acceptance_revision"],
+          "properties": {
+            "code_revision": { "$ref": "#/$defs/revision" },
+            "contract_revision": { "$ref": "#/$defs/revision" },
+            "acceptance_revision": { "$ref": "#/$defs/revision" },
+            "deployment_id": { "type": ["string", "null"] },
+            "image_digest": { "type": "string" }
+          }
+        },
+        "journeys_reviewed": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "result": { "enum": ["PASS", "FAIL"] },
+        "findings": { "type": "array", "items": { "type": "string" } },
+        "reviewed_at": { "type": "string" }
+      }
+    },
+
+    "mvpReady": {
+      "type": "object",
+      "required": ["mvp_ready_id", "bindings", "conditions", "evidence_refs", "issuer"],
+      "properties": {
+        "mvp_ready_id": { "type": "string" },
+        "bindings": {
+          "type": "object",
+          "required": ["code_revision", "contract_revision", "acceptance_revision", "baseline_id"],
+          "properties": {
+            "code_revision": { "$ref": "#/$defs/revision" },
+            "contract_revision": { "$ref": "#/$defs/revision" },
+            "acceptance_revision": { "$ref": "#/$defs/revision" },
+            "baseline_id": { "type": "string" },
+            "deployment_id": { "type": ["string", "null"] },
+            "image_digest": { "type": "string" }
+          }
+        },
+        "conditions": {
+          "type": "array",
+          "description": "One row per condition of v0.5 section 15.1.",
+          "items": {
+            "type": "object",
+            "required": ["condition", "satisfied"],
+            "properties": {
+              "condition": {
+                "enum": [
+                  "scope_and_standards_confirmed_no_open_unknown",
+                  "all_required_outcomes_implemented_and_mapped",
+                  "all_machine_acceptance_and_full_spine_pass_on_current_revision",
+                  "no_open_critical_violation_or_release_blocker",
+                  "frozen_candidate_promoted_with_valid_bindings",
+                  "staging_runs_same_candidate_and_image",
+                  "owner_completed_final_journey_review",
+                  "declared_release_prerequisites_met"
+                ]
+              },
+              "satisfied": { "type": "boolean" },
+              "reference": { "type": "string" }
+            }
+          }
+        },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
+        "issuer": {
+          "type": "object",
+          "required": ["identity"],
+          "properties": { "identity": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

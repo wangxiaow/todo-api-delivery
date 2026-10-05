@@ -1,0 +1,61 @@
+checklist_id: web_saas
+revision: 1
+project_types: [web_saas]
+items:
+  - id: WEB-STATES
+    prompt: "Do all key pages and interactions define loading, empty, error, success, and submitting states with a clear next step?"
+    must_conclude: "每个关键页面或交互有可理解的状态和下一步"
+    critical_candidate: false
+  - id: WEB-VALIDATION
+    prompt: "Are required, format, length, and invalid/duplicate values handled consistently between client feedback and server rules, without producing dirty data?"
+    must_conclude: "前端反馈与服务端规则一致，不产生脏数据"
+    critical_candidate: true
+    critical_scope: data_integrity
+  - id: WEB-SESSION
+    prompt: "Are unauthenticated, expired, sign-out, and re-login paths defined, including redirect/recovery and what data must survive?"
+    must_conclude: "过期后的跳转/恢复明确，必要数据保留"
+    critical_candidate: true
+    critical_scope: auth_boundary
+  - id: WEB-AUTHZ
+    prompt: "Are roles, resource ownership, direct API calls, and cross-tenant access checked on the server, rather than only hiding UI controls?"
+    must_conclude: "服务端校验主体和资源关系，隐藏按钮不代替授权"
+    critical_candidate: true
+    critical_scope: authorization
+  - id: WEB-SUBMIT
+    prompt: "Are double clicks, retries, and concurrent submissions defined so that no unexpected duplicates appear and conflict semantics are explicit?"
+    must_conclude: "不产生意外重复；冲突和重试语义明确"
+    critical_candidate: true
+    critical_scope: non_repeatable_side_effect
+  - id: WEB-PERSISTENCE
+    prompt: "Do restart, re-login, and migration preserve data with correct ownership, and can a failed migration be located?"
+    must_conclude: "数据保留、归属正确、迁移失败可定位"
+    critical_candidate: true
+    critical_scope: durability
+  - id: WEB-INVITE
+    prompt: "Are create, send, accept, wrong-identity, expired, and duplicate invitation paths fully defined through to membership and actual access, with revocation either adopted or explicitly excluded?"
+    must_conclude: "完整到 membership 和实际访问；撤销等状态明确采用或排除"
+    critical_candidate: true
+    critical_scope: permission_grant
+  - id: WEB-FAILURE
+    prompt: "Are network, API, storage, and external provider failures non-silent, with key input preserved and a defined recovery path?"
+    must_conclude: "不静默成功；关键输入保留及恢复方式明确"
+    critical_candidate: true
+    critical_scope: data_risk
+  - id: WEB-OBSERVABILITY
+    prompt: "Can a failed journey be located from logs and diagnostics without recording secrets or unnecessary personal data?"
+    must_conclude: "能定位 Journey 失败，不记录秘密或不必要个人数据"
+    critical_candidate: true
+    critical_scope: secret_exposure
+  - id: WEB-CONFIG
+    prompt: "Are required configuration, callbacks, startup, and health checks defined so a clean environment and staging can start and report their actual version?"
+    must_conclude: "干净环境和 staging 可启动、可识别版本"
+    critical_candidate: true
+    critical_scope: deployment
+  - id: WEB-USABILITY
+    prompt: "Can a human complete the user goal unaided in a final journey review, discovering entries and understanding each state?"
+    must_conclude: "人工 Journey Review 能独立达到用户目标"
+    critical_candidate: false
+  - id: WEB-SCOPE
+    prompt: "Are the current roles, permissions, mail channel, and non-goals explicit, without quietly adding complex RBAC or billing?"
+    must_conclude: "明确当前范围，不偷偷加入复杂 RBAC、收费等功能"
+    critical_candidate: false

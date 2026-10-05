@@ -1,0 +1,51 @@
+checklist_id: cli
+revision: 1
+project_types: [cli]
+items:
+  - id: CLI-INPUT
+    prompt: "Are missing/unknown arguments, types, invalid paths, and stdin handling defined so help and errors are clear and illegal input causes no unintended modification?"
+    must_conclude: "help 与错误清楚，非法输入不产生意外修改"
+    critical_candidate: true
+    critical_scope: write_operation
+  - id: CLI-OUTPUT
+    prompt: "Are stdout, stderr, exit codes, and machine-readable output contracts explicit enough for a script to decide success or failure?"
+    must_conclude: "脚本可判定成功失败，输出契约明确"
+    critical_candidate: false
+  - id: CLI-EMPTY
+    prompt: "Are empty input, no results, and empty directories defined as a legitimate empty result or a failure, never a false success?"
+    must_conclude: "明确合法空结果还是失败，不误报成功"
+    critical_candidate: false
+  - id: CLI-RETRY
+    prompt: "Are repeated execution, overwrite, concurrency, and conflict behaviors defined as idempotent or explicitly conflicting?"
+    must_conclude: "幂等性或冲突行为明确"
+    critical_candidate: true
+    critical_scope: data_integrity
+  - id: CLI-INTERRUPT
+    prompt: "On timeout, cancellation, termination, or partial write, are temporary files and partial results identifiable with bounded recovery?"
+    must_conclude: "临时文件/部分结果可识别，恢复有界"
+    critical_candidate: true
+    critical_scope: data_corruption
+  - id: CLI-PERMISSION
+    prompt: "Do missing permissions, wrong identity, and out-of-bounds paths fail explicitly without bypassing resource boundaries?"
+    must_conclude: "失败明确，不绕过资源边界"
+    critical_candidate: true
+    critical_scope: authorization
+  - id: CLI-CONFIG
+    prompt: "Are configuration precedence, environment variables, and credentials defined so a clean environment runs or reports what is missing, with no secrets in logs?"
+    must_conclude: "干净环境可运行或报告缺失，秘密不进日志"
+    critical_candidate: true
+    critical_scope: credential_exposure
+  - id: CLI-DESTRUCTIVE
+    prompt: "For delete, overwrite, and migration, is it explicit whether confirmation, dry-run, and backup are product requirements?"
+    must_conclude: "明确确认、dry-run、备份是否为产品要求"
+    critical_candidate: true
+    critical_scope: irreversible_loss
+  - id: CLI-ENV
+    prompt: "Does it repeatably run in the declared environment using declared dependencies, without relying on leftovers from the developer machine?"
+    must_conclude: "在声明环境可重复执行，不依赖开发机残留"
+    critical_candidate: false
+  - id: CLI-OBSERVABILITY
+    prompt: "Can a failure be located from context and diagnostics, and does the exit status match the real outcome?"
+    must_conclude: "可定位失败，退出状态与真实结果一致"
+    critical_candidate: true
+    critical_scope: diagnostics

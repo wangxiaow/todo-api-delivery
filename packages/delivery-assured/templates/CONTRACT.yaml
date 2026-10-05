@@ -1,0 +1,113 @@
+schema_version: "0.5"
+contract_version: 1
+status: draft
+product:
+  id: <project-id>
+  intent_ref: docs/INTENT.md
+  elicitation_ref: docs/ELICITATION.md
+  project_types: [web_saas]
+  target_users: [<role-1>, <role-2>]
+  release_goal: "<必须明确：演示、测试用户或真实上线>"
+
+journeys:
+  - id: J-<ID>
+    title: <一句可读的旅程标题>
+    required: true
+    source_refs: ["intent:core-journeys"]
+    outcomes:
+      - id: J-<ID>.<result>
+        required: true
+        observable: <用户可观察到的具体结果，含持久化要求>
+    exceptional_outcomes:
+      - id: J-<ID>.<failure>
+        required: true
+        observable: <失败/非法输入/错误身份下必须成立的拒绝结果>
+
+capabilities:
+  - id: C-<ID>
+    required: true
+    observable: <可独立检查的能力结果，不写抽象口号>
+
+business_rules:
+  - id: BR-<ID>
+    required: true
+    severity: critical
+    rule: <一句话规则>
+    subjects: [<主体类型>]
+    resources: [<资源类型>]
+    operations: [<操作>]
+    boundaries: [<边界，如 valid/expired/invalid 或 same_project/other_project>]
+    acceptance_requirements:
+      positive: [<必须允许的方向>]
+      negative: [<必须拒绝的方向>]
+      forbidden_effects: [<拒绝后绝不允许发生的状态变化或数据泄漏>]
+
+implicit_obligations:
+  - checklist_id: <清单 ID，如 WEB-AUTHZ>
+    disposition: required          # required / excluded / not_applicable / deferred_with_approval
+    obligation_ids: [<映射到的义务 ID>]
+  # 必须继续补齐所选清单的全部条目及其处置。
+
+unknowns:
+  - id: U-<ID>
+    question: <未决问题>
+    affects: [<Journey / Rule / deployment>]
+    impact: <不回答的后果>
+    suggested_default: "<给出建议，但不能自行批准>"
+    status: unresolved             # unresolved / resolved / excluded / assumed_approved / deferred_with_approval
+    decision: "<你的决定，resolved 后必填>"
+    approval_ref: "<确认记录引用>"
+    review_at: "<deferred_with_approval 时的复查时点>"
+
+approved_assumptions: []
+# 如批准假设：记录 id、decision、scope、risk、review_at、approval_ref。
+
+out_of_scope:
+  - item: <明确不做的事>
+    reason: "<由你确认的原因>"
+    approval_ref: "<确认引用>"
+
+deployment:
+  slice_environment: production_like_container
+  bootstrap_environment: staging
+  mvp_ready_environment: staging
+  release_target: "<本次发布目标>"
+  mail_channel: "<已确认的投递方式，或 not_applicable>"
+  environment_sensitive_paths: ["<回调、provider、部署、迁移配置路径>"]
+  environment_limitations: ["<自动验收覆盖不到的部分，例如主观易用性；必须如实声明>"]
+  # 每项前提都要能被机器观测，并声明观测方式；无法观测的前提不会被默认满足。
+  release_prerequisites:
+    - id: verify-required-checks
+      description: "<该发布目标要求哪些必需检查在候选版本上实际通过>"
+      verification: required_check_runs_on_candidate
+      expects: ["<必需检查名称>"]
+    - id: baseline-ref-readable
+      description: "受保护 Baseline 引用存在且指向不可变版本"
+      verification: baseline_ref_readable
+      ref: "refs/heads/baseline/<project>"
+  operational_acceptance_ids: ["<Acceptance 会话生成后填入>"]
+
+# 默认完成规则。未声明按 human_review 处理（缺字段不能变成自动放行）。
+# independent_auto：由精确版本上的实际执行与平台观测判定，不需要人工签收。
+# human_review：需要真实人工评审记录（不能由 Agent 伪造）。
+completion_policy:
+  mode: independent_auto
+  authorization_ref: "<用户授权或需求确认记录；自动模式必须留痕>"
+  decided: "<这次授权改变了什么默认规则>"
+  scope: "<只改变完成规则，不改变任何可观察结果或断言>"
+
+acceptance:
+  manifest_ref: tests/acceptance/spec/manifest.yaml
+  protected_revision: "<受保护标准形成后由流程解析>"
+  manual_reviews: []                 # human_review 模式下必填；independent_auto 下必须为空
+  automated_reviews:
+    - id: R-<ID>
+      obligation_ids: ["<Journey / Capability / Rule ID>"]
+      case_ids: ["<受保护的 Required 验收 case>"]
+      limitation: "<自动结论覆盖不到的部分>"
+
+approval:
+  status: pending                  # pending / approved
+  unknowns_decision_ref: "<Unknowns 决定记录>"
+  acceptance_summary_ref: "<验收标准确认记录>"
+  effective_revision: "<受保护流程生成，不由 Agent 宣告批准>"

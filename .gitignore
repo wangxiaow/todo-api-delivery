@@ -1,0 +1,12 @@
+# Locally generated durable-state scopes must never sit in this checkout: the session's
+# authoritative read compares the working tree against refs/heads/delivery-state/main, and
+# a file that exists here but not on the ref turns a clean `durable-ref` read into a
+# degraded `durable-ref-with-worktree-fill`.
+**/.agent/evidence/
+**/.agent/artifact/
+**/.agent/attempts.jsonl
+**/ci/evidence/
+**/ci/recording/
+**/ci/baseline/
+**/data/
+node_modules/

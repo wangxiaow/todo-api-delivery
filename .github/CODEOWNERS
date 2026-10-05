@@ -1,0 +1,17 @@
+# Replace @OWNER with an actual protected code owner before enabling CI.
+/project/.agent/CONTRACT.yaml @OWNER
+/project/.agent/project.yaml @OWNER
+/project/.agent/slices/ @OWNER
+/project/.agent/reviews.yaml @OWNER
+/project/tests/acceptance/spec/ @OWNER
+/project/tests/acceptance/driver/ @OWNER
+/project/tests/harness/ @OWNER
+/project/tests/spine/ @OWNER
+/project/scripts/ @OWNER
+/project/ci/ @OWNER
+/packages/delivery-assured/ @OWNER
+/plugins/ @OWNER
+/ci/ @OWNER
+/tools/*ci* @OWNER
+/tools/*promotion* @OWNER
+/.github/ @OWNER

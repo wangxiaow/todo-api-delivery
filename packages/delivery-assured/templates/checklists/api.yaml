@@ -1,0 +1,58 @@
+checklist_id: api
+revision: 1
+project_types: [api]
+items:
+  - id: API-VALIDATION
+    prompt: "Are missing fields, types, ranges, unknown fields, and illegal encodings handled with explicit validation and consistent status codes?"
+    must_conclude: "校验与错误语义明确，状态码一致"
+    critical_candidate: true
+    critical_scope: data_integrity
+  - id: API-AUTHN
+    prompt: "Do missing, wrong, and expired credentials fail explicitly instead of degrading to anonymous permissions?"
+    must_conclude: "不意外降级为匿名权限"
+    critical_candidate: true
+    critical_scope: authentication
+  - id: API-AUTHZ
+    prompt: "Does every resource operation verify the subject-resource relationship for roles, ownership, cross-tenant, and direct object-id access?"
+    must_conclude: "每项资源操作检查主体关系"
+    critical_candidate: true
+    critical_scope: authorization
+  - id: API-ERRORS
+    prompt: "Is the error model stable for business errors, dependency failures, and internal exceptions without leaking secrets or sensitive details?"
+    must_conclude: "错误模型稳定，不泄露秘密或敏感细节"
+    critical_candidate: true
+    critical_scope: secret_exposure
+  - id: API-IDEMPOTENCY
+    prompt: "Are repeated requests, retries, concurrency, and side effects given explicit idempotency, conflict, uniqueness, and transaction semantics?"
+    must_conclude: "幂等、冲突、唯一性和事务语义明确"
+    critical_candidate: true
+    critical_scope: non_repeatable_side_effect
+  - id: API-PERSISTENCE
+    prompt: "On restart, transaction failure, and migration, is there no silent partial success, wrong ownership, or data loss?"
+    must_conclude: "无静默部分成功、归属错误或数据丢失"
+    critical_candidate: true
+    critical_scope: durability
+  - id: API-LIST
+    prompt: "Are empty collections, pagination, boundaries, sorting, and filtering traversable and predictable, or explicitly excluded as not applicable?"
+    must_conclude: "列表可遍历，边界可预期；不适用明确排除"
+    critical_candidate: false
+  - id: API-DEPENDENCY
+    prompt: "For timeouts, unavailability, retries, and asynchronous failures, are failure and recovery bounded without unbounded retry?"
+    must_conclude: "失败与恢复有界，不无限重试"
+    critical_candidate: true
+    critical_scope: side_effect_risk
+  - id: API-OBSERVABILITY
+    prompt: "Do request correlation, errors, health, and readiness allow deciding whether requests can be accepted and locating a failure?"
+    must_conclude: "可判断能否接受请求并定位失败"
+    critical_candidate: true
+    critical_scope: operations
+  - id: API-DEPLOYMENT
+    prompt: "Do configuration, startup, migration, and actual version reporting show that the container and staging run the specified candidate?"
+    must_conclude: "容器和 staging 运行指定候选"
+    critical_candidate: true
+    critical_scope: deployment
+  - id: API-RESOURCE
+    prompt: "Are size, rate, and concurrency boundaries declared with the error behavior, without expanding into a complex rate-limiting platform?"
+    must_conclude: "声明限制及错误行为，不自动扩展为复杂限流平台"
+    critical_candidate: true
+    critical_scope: resource_exhaustion
