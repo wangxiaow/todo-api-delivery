@@ -1,0 +1,23 @@
+{
+  "name": "todo-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Todo HTTP API: create, read, update and delete todos over HTTP with SQLite persistence",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "main": "src/cli.mjs",
+  "bin": {
+    "todo-api": "src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs serve",
+    "migrate": "node src/cli.mjs migrate",
+    "build": "node scripts/build.mjs",
+    "gate:clean-boot": "node scripts/gate-clean-boot.mjs",
+    "gate:persistence": "node scripts/gate-persistence.mjs",
+    "acceptance": "node tests/harness/run-acceptance.mjs --scope all"
+  }
+}

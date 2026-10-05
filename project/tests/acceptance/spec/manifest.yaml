@@ -1,0 +1,408 @@
+# Frozen acceptance manifest (tests/acceptance/spec).
+#
+# This file is the protected standard: the Contract may only reference case ids
+# that already exist here, and CI verifies that the candidate's copy is
+# byte-identical to the frozen standard revision. `required: true` + `method:
+# automated` cases are the machine acceptance set; every one of them must really
+# execute and pass, with no skip and no filter.
+#
+# Assertions live here and in the referenced spec files, never in
+# tests/acceptance/driver/ (the driver only observes and returns).
+#
+# revision is an integer bumped when the standard is appended to.
+
+revision: 1
+product: todo-api
+cases:
+  - id: A-CREATE-001
+    obligation_ids: [J-CREATE, C-HTTP-API, BR-VALIDATION]
+    outcome_ids: [J-CREATE.CREATED, J-READ.FETCHED]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "POST /api/v1/todos with a well-formed body, then GET the returned location"
+    assertions:
+      - "a well-formed request body is accepted with 201"
+      - "the response carries a Location header pointing at the created todo"
+      - "GET on that location returns the same id and title"
+    critical_scenarios:
+      - "a well-formed request body is accepted with 201"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-CREATE-001.mjs
+
+  - id: A-VALIDATION-001
+    obligation_ids: [BR-VALIDATION, C-VALIDATION]
+    outcome_ids: [J-CREATE.REJECTED_INVALID]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "POST bodies that are missing a required field or carry an unknown field, then list"
+    assertions:
+      - "a missing title is rejected with 400 and error code validation_error"
+      - "an unknown field is rejected with 400 and error code validation_error"
+      - "the collection is still empty after the rejected requests"
+    critical_scenarios:
+      - "a missing required field is rejected with 400 validation_error"
+      - "an unknown field is rejected with 400 validation_error"
+      - "a rejected request persists no todo and changes no stored todo"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-VALIDATION-001.mjs
+
+  - id: A-VALIDATION-BODY-001
+    obligation_ids: [BR-VALIDATION, C-VALIDATION, C-RESOURCE]
+    outcome_ids: [J-CREATE.REJECTED_INVALID]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "POST malformed JSON and a body larger than the declared limit, then a valid body"
+    assertions:
+      - "malformed JSON is rejected with 400 and error code invalid_json"
+      - "a body over the declared limit is rejected with 413 and error code payload_too_large"
+      - "the service still accepts a valid body afterwards and stores exactly one todo"
+    critical_scenarios:
+      - "a rejected request persists no todo and changes no stored todo"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-VALIDATION-BODY-001.mjs
+
+  - id: A-AUTHN-001
+    obligation_ids: [BR-AUTHN, C-AUTHN]
+    outcome_ids: [J-CREATE.REJECTED_UNAUTHENTICATED]
+    required: true
+    method: automated
+    actors: [anonymous client, client with an unknown credential]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "call the collection with no Authorization header, an unknown token and an empty bearer, then list with alice's token"
+    assertions:
+      - "a request with no credential is rejected with 401 and error code unauthorized"
+      - "a request with an unknown credential is rejected with 401 and error code unauthorized"
+      - "alice's collection is still empty after the rejected requests"
+      - "alice's valid credential can create and read todos"
+    critical_scenarios:
+      - "valid token can create and read todos"
+      - "missing token is rejected with 401 unauthorized"
+      - "unknown token is rejected with 401 unauthorized"
+      - "no todo is created and no todo is returned for an unauthenticated request"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-AUTHN-001.mjs
+
+  - id: A-AUTHZ-001
+    obligation_ids: [BR-AUTHZ, C-AUTHZ]
+    required: true
+    method: automated
+    actors: [owner alice, other owner bob]
+    preconditions: ["alice owns one todo", "bob holds a valid but different credential"]
+    action: "bob addresses alice's todo by id with GET, PATCH, PUT and DELETE"
+    assertions:
+      - "every cross-owner request is rejected with 404 and error code not_found"
+      - "alice's todo body is never returned to bob"
+      - "alice's todo is unchanged afterwards: same title, done flag, notes and version"
+      - "alice can still read and change her own todo"
+    critical_scenarios:
+      - "the owner can read and change its own todo"
+      - "a different owner's direct object-id access is rejected with 404 not_found"
+      - "cross-owner access changes no field of the todo and reveals no todo body"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-AUTHZ-001.mjs
+
+  - id: A-IDEMPOTENCY-POST-001
+    obligation_ids: [BR-IDEMPOTENCY, C-IDEMPOTENCY]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "POST the same body twice with one Idempotency-Key, then again with a different body and the same key"
+    assertions:
+      - "the repeated submission returns the first todo id instead of creating a second"
+      - "the same key with a different body is rejected with 409 and error code idempotency_key_reuse"
+      - "the collection contains exactly one todo, with the first title"
+    critical_scenarios:
+      - "a repeated idempotency key returns the first todo instead of creating a second"
+      - "the same idempotency key with a different body is rejected with 409 idempotency_key_reuse"
+      - "a repeated submission stores no second todo"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-IDEMPOTENCY-POST-001.mjs
+
+  - id: A-IDEMPOTENCY-PUT-001
+    obligation_ids: [C-IDEMPOTENCY, J-UPDATE, J-UPDATE.UPDATED]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "PUT the same representation twice to the same todo id, then read it"
+    assertions:
+      - "the first PUT creates the todo with 201 and the second replaces it with 200"
+      - "the collection contains exactly one todo with the submitted title and done flag"
+      - "a PUT carrying a stale If-Match version is rejected with 412 and changes nothing"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-IDEMPOTENCY-PUT-001.mjs
+
+  - id: A-IDEMPOTENCY-DELETE-001
+    obligation_ids: [C-IDEMPOTENCY, J-DELETE, J-DELETE.DELETED, J-DELETE.REPEAT_MISSING]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["alice owns one todo"]
+    action: "DELETE the todo twice and read it back"
+    assertions:
+      - "the first DELETE answers 204 with no body"
+      - "the second DELETE answers 404 with error code not_found"
+      - "GET returns 404 and the collection no longer contains the todo"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-IDEMPOTENCY-DELETE-001.mjs
+
+  - id: A-READ-LIST-001
+    obligation_ids: [J-READ, J-READ.LISTED, C-LIST]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "alice created three todos in order"]
+    action: "GET /api/v1/todos on the empty collection and after three creates, with done and q filters"
+    assertions:
+      - "the empty collection answers 200 with an empty items array and a null next_cursor"
+      - "the three todos come back newest first and the order is stable across calls"
+      - "the done filter returns only the todos whose done flag matches"
+      - "the q filter returns only todos whose title contains the substring"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-READ-LIST-001.mjs
+
+  - id: A-LIST-PAGINATION-001
+    obligation_ids: [C-LIST, C-RESOURCE, J-READ.LISTED]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["alice created five todos"]
+    action: "walk the collection with limit=2 following next_cursor, then send the declared boundaries"
+    assertions:
+      - "walking every page yields each todo exactly once and a null cursor at the end"
+      - "limit=0 is rejected with 400 and error code validation_error"
+      - "limit above the declared maximum is rejected with 400 and error code validation_error"
+      - "an unknown cursor is rejected with 400 and error code invalid_cursor"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-LIST-PAGINATION-001.mjs
+
+  - id: A-UPDATE-PATCH-001
+    obligation_ids: [J-UPDATE, J-UPDATE.UPDATED, C-HTTP-API]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["alice owns one todo with done false"]
+    action: "PATCH done and notes, read it back, then PATCH an empty body"
+    assertions:
+      - "the PATCH answers 200 and raises the version while keeping title and id"
+      - "the stored todo reflects done and notes after the call"
+      - "an empty PATCH body is rejected with 400 and error code validation_error"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-UPDATE-PATCH-001.mjs
+
+  - id: A-CONCURRENCY-PUT-001
+    obligation_ids: [C-IDEMPOTENCY, J-UPDATE.PRECONDITION_FAILED, BR-DURABILITY]
+    required: true
+    method: automated
+    actors: [two concurrent requests from the same owner]
+    preconditions: ["alice owns one todo at version 1"]
+    action: "issue two PUTs with the same If-Match version concurrently"
+    assertions:
+      - "exactly one of the two requests succeeds with 200 and the other is rejected with 412"
+      - "the stored todo matches the winning representation and its version advanced exactly once"
+      - "no partially applied mix of the two bodies is stored"
+    critical_scenarios:
+      - "a rejected write leaves the stored row byte-identical"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-CONCURRENCY-PUT-001.mjs
+
+  - id: A-READ-NOT-FOUND-001
+    obligation_ids: [J-READ.NOT_FOUND, C-HTTP-API, J-READ]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["an empty database", "a valid owner token for alice"]
+    action: "GET a syntactically valid but unknown todo id"
+    assertions:
+      - "the response is 404 with error code not_found"
+      - "the error body carries the request id and no stack frame"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-READ-NOT-FOUND-001.mjs
+
+  - id: A-PERSIST-RESTART-001
+    obligation_ids: [J-RUN.PERSISTED_ACROSS_RESTART, C-PERSISTENCE, BR-DURABILITY]
+    required: true
+    method: automated
+    actors: [operator restarting the service]
+    preconditions: ["alice created a todo on a fresh database file"]
+    action: "stop the process with SIGTERM and start it again on the same database file"
+    assertions:
+      - "the todo is readable after the restart with the same id, title and version"
+      - "created_at is unchanged and the collection contains exactly one todo"
+      - "the restarted process reports the same schema version"
+    critical_scenarios:
+      - "a committed todo is readable with the same id and title after a process restart"
+      - "a restart loses no committed todo and creates no duplicate"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-PERSIST-RESTART-001.mjs
+
+  - id: A-PERSIST-ATOMIC-001
+    obligation_ids: [BR-DURABILITY, C-PERSISTENCE]
+    outcome_ids: [J-CREATE.REJECTED_INVALID]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["alice owns one todo"]
+    action: "send rejected writes and compare the stored representation before and after"
+    assertions:
+      - "the stored todo keeps the same version, title, done flag, notes and updated_at"
+      - "the number of todos does not change after rejected creates"
+      - "a read after the rejected writes returns the original representation"
+    critical_scenarios:
+      - "a rejected write leaves the stored row byte-identical"
+      - "a rejected request persists no todo and changes no stored todo"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-PERSIST-ATOMIC-001.mjs
+
+  - id: A-MIGRATION-001
+    obligation_ids: [C-PERSISTENCE, C-DEPLOYMENT]
+    outcome_ids: [J-RUN.PERSISTED_ACROSS_RESTART]
+    required: true
+    method: automated
+    actors: [operator]
+    preconditions: ["no database file exists yet"]
+    action: "start the service on an empty path, read the reported schema version, restart it and read it again"
+    assertions:
+      - "the first start reports schema_version 1 through /version"
+      - "the second start reports the same schema_version and applies no second migration"
+      - "the database file exists on disk after startup"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-MIGRATION-001.mjs
+
+  - id: A-ERRORS-001
+    obligation_ids: [BR-SECRET, C-ERRORS]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["a valid owner token for alice"]
+    action: "call an unknown path, a wrong method on a known path, and an unauthorized request, inspecting every error body"
+    assertions:
+      - "an unknown path answers 404 with error code not_found"
+      - "a wrong method on a known path answers 405 with error code method_not_allowed and an Allow header"
+      - "every error body carries error.code and error.request_id"
+      - "no error body contains the presented credential, a SQL keyword or a stack frame"
+    critical_scenarios:
+      - "an error response carries a stable error code and the request id"
+      - "an error response never echoes the presented credential"
+      - "no error response body contains a credential, a SQL statement or a stack frame"
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-ERRORS-001.mjs
+
+  - id: A-OBSERVABILITY-001
+    obligation_ids: [C-OBSERVABILITY]
+    required: true
+    method: automated
+    actors: [authenticated api client, operator reading logs]
+    preconditions: ["a valid owner token for alice", "the service logs to stdout"]
+    action: "send a request carrying X-Request-Id, then a request without one, then read the captured stdout"
+    assertions:
+      - "a valid client request id is echoed in the response header and in the error envelope"
+      - "a request without one still receives a generated request id"
+      - "one structured log line for the request names the request id, the method, the path and the status"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-OBSERVABILITY-001.mjs
+
+  - id: A-HEALTH-001
+    obligation_ids: [C-OBSERVABILITY, J-RUN, J-RUN.STARTED, C-DEPLOYMENT]
+    required: true
+    method: automated
+    actors: [operator]
+    preconditions: ["no credential is presented"]
+    action: "call /healthz, /readyz and /version without a token"
+    assertions:
+      - "/healthz answers 200 and status ok without a credential"
+      - "/readyz answers 200 with status ready and the schema version once the database is open"
+      - "/version answers 200 with api_version v1"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-HEALTH-001.mjs
+
+  - id: A-DEPLOY-VERSION-001
+    obligation_ids: [C-DEPLOYMENT, C-DEPENDENCY]
+    required: true
+    method: automated
+    actors: [operator]
+    preconditions: ["the process is started with TODO_BUILD_REVISION set to a known value"]
+    action: "read /version and compare it with the injected revision"
+    assertions:
+      - "/version reports exactly the injected build revision"
+      - "/version reports the api version, the schema version and the declared environment"
+      - "no outbound dependency is required: no request needs network access beyond the loopback socket"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-DEPLOY-VERSION-001.mjs
+
+  - id: A-RESOURCE-QUOTA-001
+    obligation_ids: [C-RESOURCE, C-LIST]
+    required: true
+    method: automated
+    actors: [two owners on one service]
+    preconditions: ["the per-owner todo cap is configured to 2"]
+    action: "alice creates three todos, then bob creates one"
+    assertions:
+      - "alice's third create is rejected with 429 and error code quota_exceeded"
+      - "alice still has exactly two todos"
+      - "bob's create succeeds because the cap is per owner"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-RESOURCE-QUOTA-001.mjs
+
+  - id: A-DEPENDENCY-RECOVERY-001
+    obligation_ids: [C-DEPENDENCY, C-RESOURCE, C-VALIDATION]
+    required: true
+    method: automated
+    actors: [authenticated api client]
+    preconditions: ["a valid owner token for alice"]
+    action: "send an oversized body, then a valid create, then repeat the oversized body several times"
+    assertions:
+      - "the oversized body is rejected with 413 and stores nothing"
+      - "the following valid create succeeds on the same connection pool"
+      - "repeating the failing request never creates a todo and never duplicates one"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-DEPENDENCY-RECOVERY-001.mjs
+
+  - id: A-STARTUP-FAILFAST-001
+    obligation_ids: [J-RUN.FAIL_FAST, C-DEPLOYMENT, C-STARTUP]
+    required: true
+    method: automated
+    actors: [operator]
+    preconditions: ["the configured database path cannot be created because its parent is a file"]
+    action: "run the documented start command with that database path"
+    assertions:
+      - "the process exits non-zero instead of starting"
+      - "stderr names the database path that could not be prepared"
+      - "nothing is listening on the configured port afterwards"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-STARTUP-FAILFAST-001.mjs
+
+  - id: A-STARTUP-CLI-001
+    obligation_ids: [C-STARTUP, J-RUN.STARTED, C-HTTP-API]
+    required: true
+    method: automated
+    actors: [operator]
+    preconditions: ["the repository is checked out"]
+    action: "run the documented entry point with --help and with the migrate subcommand"
+    assertions:
+      - "--help exits 0 and prints usage naming the serve and migrate subcommands"
+      - "the migrate subcommand prepares the database without starting a listener"
+      - "the serve subcommand is the documented way to start the API"
+    critical_scenarios: []
+    environments: [production_like_ci]
+    spec_ref: tests/acceptance/spec/A-STARTUP-CLI-001.mjs

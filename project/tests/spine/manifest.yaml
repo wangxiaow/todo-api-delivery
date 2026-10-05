@@ -1,0 +1,12 @@
+# Accumulated regression Spine.
+#
+# The Spine is a durable-state artifact: after every promotion the trusted Promotion
+# job appends the cases that were actually verified on the frozen candidate. It only
+# ever grows — every case listed here is re-executed on later candidates, and dropping
+# one requires the owner's explicit confirmation.
+#
+# It starts empty because Baseline #0 has not been promoted yet: nothing has been
+# verified on a protected revision, and pre-filling this list would claim otherwise.
+
+revision: 1
+case_ids: []
