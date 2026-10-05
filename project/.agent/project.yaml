@@ -1,0 +1,54 @@
+# Project metadata for the Delivery-Assured operation pack.
+#
+# The verifier (ci/verifier.yaml) and the frozen acceptance (tests/acceptance/spec)
+# are both interpreted through this file, so it exists before either of them.
+# Paths are project-relative (the project root is the directory holding .agent/).
+
+project:
+  id: todo-api
+  name: Todo HTTP API
+  intent_ref: docs/INTENT.md
+  elicitation_ref: docs/ELICITATION.md
+
+# Protected references. Baseline #0 is created by the trusted Promotion job; this
+# session may never write either ref.
+baseline_ref: refs/heads/baseline/main
+baseline_remote: origin
+
+# Environment declarations (one source of truth for slice / bootstrap / MVP_READY).
+#
+# production_like_ci is the honest kind here: the only environment that actually
+# runs this candidate is the CI job that packages the artifact, installs it into a
+# clean directory, starts it and observes the running revision (see
+# ci/tools/verify-artifact.mjs + ci/tools/ci-deploy-probe.mjs). No staging target
+# exists for this repository, and declaring one would be a claim nothing observes.
+slice_environment: production_like_ci
+bootstrap_environment: production_like_ci
+mvp_ready_environment: production_like_ci
+
+ci_provider: github-actions
+ci:
+  # Must equal DSH_CI_ISSUER of the trusted verify job (.github/workflows/verify.yml).
+  # Without it, no evidence can be attributed to the real verification job.
+  trusted_issuer: ci:verify
+  workflow: verify.yml
+
+paths:
+  contract: .agent/CONTRACT.yaml
+  state: .agent/STATE.yaml
+  slices: .agent/slices
+  acceptanceManifest: tests/acceptance/spec/manifest.yaml
+  acceptanceSpec: tests/acceptance/spec
+  acceptanceDriver: tests/acceptance/driver
+  spineManifest: tests/spine/manifest.yaml
+  verifier: ci/verifier.yaml
+  evidenceDir: .agent/evidence
+  attemptsLog: .agent/attempts.jsonl
+
+# Attempt budget for a Slice. An attempt is one candidate formed against a stated
+# hypothesis and run against the agreed set; sessions and renames never reset it.
+attempt_budget:
+  same_root_cause_limit: 3
+  total_attempt_limit: 8
+  no_progress_window: 3
+  replan_limit: 2

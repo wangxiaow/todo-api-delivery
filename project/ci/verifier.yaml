@@ -1,0 +1,61 @@
+# Verifier configuration — the actual commands of the 5+1 Gates.
+#
+# `verify.mjs` reads this file, runs each gate with the project root as cwd, and
+# treats a non-zero exit as a failed gate. A gate may declare `excluded: true`
+# together with a `reason`, or `local: skip` when only the trusted CI job can
+# observe it; an empty execution is never a pass.
+#
+# Windows is the runner (`.github/workflows/verify.yml` uses windows-latest), so
+# every command is written to work under `powershell.exe -Command`.
+
+gates:
+  - gate: build
+    command: node scripts/build.mjs
+    timeout_ms: 300000
+    description: >-
+      Syntax-check every shipped module, verify the frozen standard files exist,
+      and refuse a package that cannot be installed from the standard library only.
+
+  - gate: clean_boot
+    command: node scripts/gate-clean-boot.mjs
+    timeout_ms: 300000
+    description: >-
+      Boot the service on an empty database in a fresh directory, wait for
+      /healthz and /readyz, read /version, then stop it and require a clean exit.
+
+  - gate: persistence_migration
+    command: node scripts/gate-persistence.mjs
+    timeout_ms: 600000
+    description: >-
+      Create a todo over HTTP, restart the process on the same database file and
+      require the todo to still be readable; apply migrations twice and require
+      them to be idempotent.
+
+  - gate: slice_acceptance
+    command: node tests/harness/run-acceptance.mjs --scope slice
+    timeout_ms: 1800000
+    description: >-
+      Execute the frozen Required acceptance cases of the current Slice and write
+      their observed outcomes into the run-bound result file.
+
+  - gate: regression_spine
+    command: node tests/harness/run-acceptance.mjs --scope spine
+    timeout_ms: 1800000
+    description: >-
+      Re-execute every case accumulated in the protected Spine. The Spine only
+      grows; when it is still empty the harness exits 0 without touching the
+      result file and says so.
+
+  - gate: deployment
+    command: node scripts/gate-deployment.mjs
+    timeout_ms: 300000
+    local: skip
+    description: >-
+      Consume the honest deployment observation produced by the CI probe
+      (packaged artifact installed into a clean directory, actually started) and
+      require the observed revision and digest to be this candidate's.
+
+acceptance:
+  # The harness writes here and verify.mjs reads here; the record is bound to one
+  # verification invocation through DSH_VERIFICATION_RUN_TOKEN.
+  result_file: .agent/evidence/acceptance-results.json

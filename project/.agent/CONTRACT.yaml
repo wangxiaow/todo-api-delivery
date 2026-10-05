@@ -1,0 +1,348 @@
+schema_version: "0.5"
+contract_version: 1
+status: frozen
+product:
+  id: todo-api
+  intent_ref: docs/INTENT.md
+  elicitation_ref: docs/ELICITATION.md
+  project_types: [api]
+  target_users: [在单机上运行该服务的开发者, 通过 HTTP 调用该服务的脚本或自动化代理]
+  release_goal: "面向本机/CI 干净安装的可用服务：真实用户（开发者与其脚本）可以在一条命令启动的进程上完成 Todo 的增删改查，数据写在本地 SQLite 文件并在重启后保留。"
+
+journeys:
+  - id: J-CREATE
+    title: 新增一个 Todo
+    required: true
+    source_refs: ["intent:core-journeys", "requirement:IT-001"]
+    outcomes:
+      - id: J-CREATE.CREATED
+        required: true
+        observable: "POST /api/v1/todos 返回 201 与指向新资源的 Location；随后 GET 该位置返回同一个 Todo，说明写入已落到 SQLite 文件"
+    exceptional_outcomes:
+      - id: J-CREATE.REJECTED_INVALID
+        required: true
+        observable: "字段缺失、类型错误、未知字段、非法 JSON 或超限请求体返回 400/413 与稳定错误码，集合中不出现新条目"
+      - id: J-CREATE.REJECTED_UNAUTHENTICATED
+        required: true
+        observable: "缺失、空或错误的 Bearer 凭据返回 401 unauthorized，且不创建也不返回任何 Todo"
+
+  - id: J-READ
+    title: 查询 Todo（列表与单个）
+    required: true
+    source_refs: ["intent:core-journeys", "requirement:IT-001"]
+    outcomes:
+      - id: J-READ.LISTED
+        required: true
+        observable: "GET /api/v1/todos 返回 200 与 items 数组、next_cursor；空集合返回空数组与 null 游标，顺序稳定可遍历"
+      - id: J-READ.FETCHED
+        required: true
+        observable: "GET /api/v1/todos/{id} 返回 200 与该 Todo 的当前表示（id、owner_id、title、done、notes、version、created_at、updated_at）"
+    exceptional_outcomes:
+      - id: J-READ.NOT_FOUND
+        required: true
+        observable: "未知 id 返回 404 not_found；别的所有者的 id 返回同样的 404，不泄漏该 Todo 是否存在"
+
+  - id: J-UPDATE
+    title: 修改一个 Todo
+    required: true
+    source_refs: ["intent:core-journeys", "requirement:IT-001"]
+    outcomes:
+      - id: J-UPDATE.UPDATED
+        required: true
+        observable: "PATCH 局部修改或 PUT 整体替换返回 200，version 自增，随后 GET 反映新值而 id 与 created_at 不变"
+    exceptional_outcomes:
+      - id: J-UPDATE.PRECONDITION_FAILED
+        required: true
+        observable: "带 If-Match 的写入在版本不匹配时返回 412 precondition_failed，存储行保持不变"
+
+  - id: J-DELETE
+    title: 删除一个 Todo
+    required: true
+    source_refs: ["intent:core-journeys", "requirement:IT-001"]
+    outcomes:
+      - id: J-DELETE.DELETED
+        required: true
+        observable: "DELETE /api/v1/todos/{id} 返回 204 且无响应体；随后 GET 返回 404，集合中不再出现该条目"
+    exceptional_outcomes:
+      - id: J-DELETE.REPEAT_MISSING
+        required: true
+        observable: "重复 DELETE 返回 404 not_found，数据不会被复活，也不会产生副本"
+
+  - id: J-RUN
+    title: 启动、观察到并重启这个服务
+    required: true
+    source_refs: ["intent:startup-and-acceptance", "requirement:IT-001"]
+    outcomes:
+      - id: J-RUN.STARTED
+        required: true
+        observable: "按 README 记录的入口点启动后 /healthz 与 /readyz 返回 200，/version 报告 api_version、schema_version 与构建 revision"
+      - id: J-RUN.PERSISTED_ACROSS_RESTART
+        required: true
+        observable: "停止并以同一数据库文件重启后，同一 id 仍返回相同的 title 与 version，created_at 不变，集合中没有重复条目"
+    exceptional_outcomes:
+      - id: J-RUN.FAIL_FAST
+        required: true
+        observable: "数据库路径无法准备时进程以非零退出码结束、在 stderr 说明该路径，并且配置的端口上没有监听者"
+
+capabilities:
+  - id: C-HTTP-API
+    required: true
+    observable: "HTTP 表面的状态码与语义固定：创建 201、读取 200、修改 200、删除 204、未知 404、方法不允许 405 且带 Allow"
+  - id: C-STARTUP
+    required: true
+    observable: "文档化入口点支持 serve 与 migrate 子命令，--help 打印用法，README 给出一条启动命令"
+  - id: C-VALIDATION
+    required: true
+    observable: "请求体、查询参数与路径参数都有显式校验，错误码稳定且不写入任何数据"
+  - id: C-AUTHN
+    required: true
+    observable: "只有配置中存在的 Bearer 凭据可以通过；缺失或错误凭据一律 401，不降级为匿名"
+  - id: C-AUTHZ
+    required: true
+    observable: "每个 Todo 操作都校验凭据所属所有者与资源的归属；跨所有者按 id 访问返回 404 且不改数据"
+  - id: C-ERRORS
+    required: true
+    observable: "所有错误都是 {error:{code,message,request_id}} 形状，不含凭据、SQL 文本或堆栈"
+  - id: C-IDEMPOTENCY
+    required: true
+    observable: "Idempotency-Key 重复提交返回同一个 Todo；PUT 是 create-or-replace；DELETE 可重复执行"
+  - id: C-PERSISTENCE
+    required: true
+    observable: "数据存放在 SQLite 文件，迁移可重复执行并记录版本；已提交写入在重启后仍可读"
+  - id: C-LIST
+    required: true
+    observable: "列表支持 limit 与 cursor 分页、done 与 q 过滤，边界（limit 合法区间、非法游标）返回明确错误"
+  - id: C-DEPENDENCY
+    required: true
+    observable: "服务不需要任何出站依赖；失败有界，不重试、不排队累积，被拒绝的请求之后服务仍可用"
+  - id: C-OBSERVABILITY
+    required: true
+    observable: "每个请求有 request_id（回显或生成）、出现在错误信封与一行结构化 JSON 日志中；/healthz 与 /readyz 可判断能否接受请求"
+  - id: C-DEPLOYMENT
+    required: true
+    observable: "/version 报告运行中进程真实读到的构建 revision、schema 版本与声明环境；迁移在启动时完成，失败则快速退出"
+  - id: C-RESOURCE
+    required: true
+    observable: "请求体上限、title 长度上限、limit 上限与每位所有者 Todo 数量上限都被声明，并以 400/413/429 的稳定错误码拒绝"
+
+business_rules:
+  - id: BR-AUTHN
+    required: true
+    severity: critical
+    rule: 未提供或提供了无效凭据的请求不得读写任何 Todo
+    subjects: [anonymous_client, client_with_unknown_credential]
+    resources: [todo_collection, todo_item]
+    operations: [list, read, create, update, delete]
+    boundaries: [no_credential, empty_credential, wrong_credential]
+    acceptance_requirements:
+      positive:
+        - "valid token can create and read todos"
+      negative:
+        - "missing token is rejected with 401 unauthorized"
+        - "unknown token is rejected with 401 unauthorized"
+      forbidden_effects:
+        - "no todo is created and no todo is returned for an unauthenticated request"
+
+  - id: BR-AUTHZ
+    required: true
+    severity: critical
+    rule: 每个 Todo 操作都必须校验凭据所有者与资源所有者一致，跨所有者按 id 直接访问一律拒绝
+    subjects: [owner_alice, owner_bob]
+    resources: [todo_item]
+    operations: [read, update, delete]
+    boundaries: [same_owner, other_owner]
+    acceptance_requirements:
+      positive:
+        - "the owner can read and change its own todo"
+      negative:
+        - "a different owner's direct object-id access is rejected with 404 not_found"
+      forbidden_effects:
+        - "cross-owner access changes no field of the todo and reveals no todo body"
+
+  - id: BR-VALIDATION
+    required: true
+    severity: critical
+    rule: 非法请求必须被拒绝，且拒绝必须是原子的：不产生任何持久化副作用
+    subjects: [client_with_invalid_body]
+    resources: [todo_collection, todo_item]
+    operations: [create, update]
+    boundaries: [valid_body, missing_required_field, unknown_field, wrong_type, malformed_json, oversized_body]
+    acceptance_requirements:
+      positive:
+        - "a well-formed request body is accepted with 201"
+      negative:
+        - "a missing required field is rejected with 400 validation_error"
+        - "an unknown field is rejected with 400 validation_error"
+      forbidden_effects:
+        - "a rejected request persists no todo and changes no stored todo"
+
+  - id: BR-IDEMPOTENCY
+    required: true
+    severity: critical
+    rule: 同一 Idempotency-Key 的重复提交在语义上是一次提交
+    subjects: [client_retrying]
+    resources: [todo_collection]
+    operations: [create, retry]
+    boundaries: [same_key_same_body, same_key_different_body]
+    acceptance_requirements:
+      positive:
+        - "a repeated idempotency key returns the first todo instead of creating a second"
+      negative:
+        - "the same idempotency key with a different body is rejected with 409 idempotency_key_reuse"
+      forbidden_effects:
+        - "a repeated submission stores no second todo"
+
+  - id: BR-DURABILITY
+    required: true
+    severity: critical
+    rule: 已提交的写入必须在重启后仍然存在，且任何被拒绝的写入都不得留下部分结果
+    subjects: [operator_restarting, client_with_rejected_write]
+    resources: [todo_item, sqlite_file]
+    operations: [commit, restart, reject]
+    boundaries: [before_restart, after_restart, conflicting_concurrent_write]
+    acceptance_requirements:
+      positive:
+        - "a committed todo is readable with the same id and title after a process restart"
+      negative:
+        - "a rejected write leaves the stored row byte-identical"
+      forbidden_effects:
+        - "a restart loses no committed todo and creates no duplicate"
+
+  - id: BR-SECRET
+    required: true
+    severity: critical
+    rule: 错误响应不得泄漏凭据、SQL 文本或堆栈，必须是稳定的错误信封
+    subjects: [client_receiving_error]
+    resources: [error_response]
+    operations: [read_error_body]
+    boundaries: [4xx_error, authentication_error, invalid_input]
+    acceptance_requirements:
+      positive:
+        - "an error response carries a stable error code and the request id"
+      negative:
+        - "an error response never echoes the presented credential"
+      forbidden_effects:
+        - "no error response body contains a credential, a SQL statement or a stack frame"
+
+implicit_obligations:
+  - checklist_id: API-VALIDATION
+    disposition: required
+    obligation_ids: [C-VALIDATION, BR-VALIDATION]
+  - checklist_id: API-AUTHN
+    disposition: required
+    obligation_ids: [C-AUTHN, BR-AUTHN]
+  - checklist_id: API-AUTHZ
+    disposition: required
+    obligation_ids: [C-AUTHZ, BR-AUTHZ]
+  - checklist_id: API-ERRORS
+    disposition: required
+    obligation_ids: [C-ERRORS, BR-SECRET]
+  - checklist_id: API-IDEMPOTENCY
+    disposition: required
+    obligation_ids: [C-IDEMPOTENCY, BR-IDEMPOTENCY]
+  - checklist_id: API-PERSISTENCE
+    disposition: required
+    obligation_ids: [C-PERSISTENCE, BR-DURABILITY]
+  - checklist_id: API-LIST
+    disposition: required
+    obligation_ids: [C-LIST]
+  - checklist_id: API-DEPENDENCY
+    disposition: required
+    obligation_ids: [C-DEPENDENCY]
+  - checklist_id: API-OBSERVABILITY
+    disposition: required
+    obligation_ids: [C-OBSERVABILITY]
+  - checklist_id: API-DEPLOYMENT
+    disposition: required
+    obligation_ids: [C-DEPLOYMENT]
+  - checklist_id: API-RESOURCE
+    disposition: required
+    obligation_ids: [C-RESOURCE]
+
+unknowns:
+  - id: U-MVP-ENV
+    question: MVP_READY 以哪个环境为准？
+    affects: [deployment, C-DEPLOYMENT]
+    impact: 选错环境会让完成规则断言一个没有任何组件观测的环境
+    suggested_default: "production_like_ci"
+    status: resolved
+    decision: "production_like_ci：唯一真实运行该候选的环境是 CI 打包产物后在干净目录安装并启动的探针（ci/tools/verify-artifact.mjs 与 ci/tools/ci-deploy-probe.mjs）。仓库没有 staging 目标，声明 staging 等于声称一个没人观测的环境。"
+  - id: U-ID-SHAPE
+    question: Todo 的 id 如何生成，PUT 是否允许客户端指定 id？
+    affects: [J-CREATE, J-UPDATE, C-IDEMPOTENCY]
+    impact: 影响 create-or-replace 是否可以幂等，以及 404 语义是否可测
+    suggested_default: "POST 生成 UUIDv4；PUT 接受客户端 id"
+    status: resolved
+    decision: "POST 生成 UUIDv4；PUT /api/v1/todos/{id} 接受 1..64 个 [A-Za-z0-9._-] 字符的客户端 id 并做 create-or-replace，因此重复提交收敛到同一表示。"
+  - id: U-STORAGE
+    question: 持久化用什么存储，是否需要 npm 依赖？
+    affects: [C-PERSISTENCE, C-DEPENDENCY]
+    impact: 引入原生扩展依赖会让 CI 与干净安装变得脆弱
+    suggested_default: "Node 内置 node:sqlite"
+    status: resolved
+    decision: "使用 Node 内置的 node:sqlite（Node >= 22.5，随 Node 24 一起提供），零 npm 运行时依赖；migrations/*.sql 按文件名顺序应用并记录在 schema_migrations 表中，可重复执行。"
+
+approved_assumptions: []
+
+out_of_scope:
+  - item: 浏览器界面与前端资源
+    reason: "需求只要 HTTP API，界面会改变交付面并引入未要求的可观察结果"
+    approval_ref: "requirement:IT-001"
+  - item: 组织、角色与细粒度权限模型
+    reason: "需求未要求；实现只区分凭据所属的所有者，用于证明跨所有者隔离"
+    approval_ref: "requirement:IT-001"
+  - item: 外部通知与消息投递
+    reason: "无此需求，且会引入出站依赖与无限重试风险"
+    approval_ref: "requirement:IT-001"
+
+deployment:
+  slice_environment: production_like_ci
+  bootstrap_environment: production_like_ci
+  mvp_ready_environment: production_like_ci
+  release_target: "在这台机器上以文档化入口点启动的 HTTP 服务（Node 标准库 + 本地 SQLite），由 CI 打包、干净安装、实际启动并报告版本"
+  mail_channel: not_applicable
+  environment_sensitive_paths: ["src/config.mjs", "migrations/", "scripts/build.mjs", "scripts/gate-deployment.mjs", "ci/verifier.yaml"]
+  environment_limitations:
+    - "自动验收在 CI 干净安装中运行，不是真实 staging 或容器/命名空间隔离"
+    - "并发只在单进程单机范围内被证明；没有多实例竞争同一数据库的验收"
+    - "内部未处理异常导致的 500 路径没有故障注入用例，只验证了 4xx 错误信封不泄漏"
+  release_prerequisites:
+    - id: verify-required-checks
+      description: "候选版本上受信任的验证作业实际通过"
+      verification: required_check_runs_on_candidate
+      expects: ["verify candidate"]
+    - id: verification-workflow-active
+      description: "受信任的验证工作流存在且处于 active 状态"
+      verification: verification_workflow_active
+      workflow: verify.yml
+  operational_acceptance_ids: ["A-HEALTH-001", "A-MIGRATION-001", "A-PERSIST-RESTART-001", "A-DEPLOY-VERSION-001"]
+
+completion_policy:
+  mode: independent_auto
+  authorization_ref: "requirement:IT-001 — 用户明确要求提供自动化验收，未要求人工签收；本仓库默认完成规则即为独立自动验收"
+  decided: "把默认 human_review 收敛为 independent_auto：由冻结候选上的真实执行与平台观测的发布前提关闭交付，不需要人工评论"
+  scope: "只改变完成规则，不改变任何可观察结果、断言、Critical 边界或范围"
+
+acceptance:
+  manifest_ref: tests/acceptance/spec/manifest.yaml
+  protected_revision: ""
+  manual_reviews: []
+  automated_reviews:
+    - id: R-JOURNEY-CRUD
+      obligation_ids: [J-CREATE, J-CREATE.CREATED, J-READ, J-READ.LISTED, J-READ.FETCHED, J-UPDATE, J-UPDATE.UPDATED, J-DELETE, J-DELETE.DELETED, J-DELETE.REPEAT_MISSING, C-HTTP-API, C-STARTUP]
+      case_ids: [A-CREATE-001, A-READ-LIST-001, A-UPDATE-PATCH-001, A-IDEMPOTENCY-DELETE-001, A-STARTUP-CLI-001]
+      limitation: "只覆盖 HTTP 表面与文档化入口点；交互式易用性（帮助文案是否易懂）无法自动判定"
+    - id: R-SECURITY-BOUNDARY
+      obligation_ids: [BR-AUTHN, BR-AUTHZ, BR-VALIDATION, BR-SECRET, C-AUTHN, C-AUTHZ, C-VALIDATION, C-ERRORS]
+      case_ids: [A-AUTHN-001, A-AUTHZ-001, A-VALIDATION-001, A-VALIDATION-BODY-001, A-ERRORS-001, A-READ-NOT-FOUND-001, A-PERSIST-ATOMIC-001]
+      limitation: "验证的是固定凭据集合与所有权边界；没有覆盖真实凭据轮换、过期或外部身份提供方"
+    - id: R-DURABILITY-OPERATIONS
+      obligation_ids: [BR-IDEMPOTENCY, BR-DURABILITY, C-PERSISTENCE, C-LIST, C-DEPENDENCY, C-OBSERVABILITY, C-DEPLOYMENT, C-RESOURCE, C-IDEMPOTENCY, J-CREATE.REJECTED_INVALID, J-CREATE.REJECTED_UNAUTHENTICATED, J-READ.NOT_FOUND, J-UPDATE.PRECONDITION_FAILED, J-RUN, J-RUN.STARTED, J-RUN.FAIL_FAST, J-RUN.PERSISTED_ACROSS_RESTART]
+      case_ids: [A-IDEMPOTENCY-POST-001, A-IDEMPOTENCY-PUT-001, A-LIST-PAGINATION-001, A-CONCURRENCY-PUT-001, A-PERSIST-RESTART-001, A-MIGRATION-001, A-OBSERVABILITY-001, A-HEALTH-001, A-DEPLOY-VERSION-001, A-RESOURCE-QUOTA-001, A-DEPENDENCY-RECOVERY-001, A-STARTUP-FAILFAST-001]
+      limitation: "重启与并发都在单机单进程内观测；没有多实例、断电或真实坏盘场景，也没有内部 500 的故障注入"
+
+approval:
+  status: pending
+  unknowns_decision_ref: "requirement:IT-001 — 三个 unknown 都在本次交付内以工程决定关闭，未改变任何可观察结果或范围"
+  acceptance_summary_ref: ""
+  effective_revision: ""
