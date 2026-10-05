@@ -11,8 +11,10 @@
   BR-VALIDATION（非法输入零持久化副作用）、BR-IDEMPOTENCY（同 key 只产生一个待办项）、
   BR-DURABILITY（重启后已提交写入仍在、被拒绝写入零部分结果）、BR-SECRET（错误响应不泄漏凭据/SQL/堆栈）。
 - 当前 Baseline：尚无。`refs/heads/baseline/main` 由 Promotion 作业推进；本地诊断的 PASS 不是 Evidence。
-- 当前 Slice：S1（`.agent/slices/S1.yaml`）——Todo 垂直切片：Bearer 边界内的增删改查 + SQLite 持久化
-  + 可观测启动；义务/结果/验收映射见该文件。
+- 当前 Slice：S1——Todo 垂直切片：Bearer 边界内的增删改查 + SQLite 持久化 + 可观测启动。
+  注意：`.agent/slices/S1.yaml` **尚不存在**（bootstrap 窗口在写 Contract 后关闭，见「阻塞」），
+  因此 `verify.mjs --slice S1` 与 `ci-record --mode precheck` 在跑任何门之前就会失败。
+  该文件的完整内容在迭代日志的交接说明中，需要 Owner 或重新打开 bootstrap 窗口后落盘。
 - 当前代码约定及来源 revision：
   - 数据访问与事务：所有写操作走 `src/db.mjs` 的 `withTransaction`（`BEGIN IMMEDIATE`）；迁移只在
     `src/migrations.mjs` 中按 `migrations/*.sql` 文件名顺序执行
