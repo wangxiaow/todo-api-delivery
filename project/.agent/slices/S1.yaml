@@ -1,0 +1,98 @@
+id: S1
+slice_key: S1
+title: "待办项 HTTP API 垂直切片：Bearer 边界内的增删改查 + SQLite 持久化 + 可观测启动"
+status: READY
+obligations:
+  - J-CREATE
+  - J-CREATE.CREATED
+  - J-CREATE.REJECTED_INVALID
+  - J-CREATE.REJECTED_UNAUTHENTICATED
+  - J-READ
+  - J-READ.LISTED
+  - J-READ.FETCHED
+  - J-READ.NOT_FOUND
+  - J-UPDATE
+  - J-UPDATE.UPDATED
+  - J-UPDATE.PRECONDITION_FAILED
+  - J-DELETE
+  - J-DELETE.DELETED
+  - J-DELETE.REPEAT_MISSING
+  - J-RUN
+  - J-RUN.STARTED
+  - J-RUN.FAIL_FAST
+  - J-RUN.PERSISTED_ACROSS_RESTART
+  - C-HTTP-API
+  - C-STARTUP
+  - C-VALIDATION
+  - C-AUTHN
+  - C-AUTHZ
+  - C-ERRORS
+  - C-IDEMPOTENCY
+  - C-PERSISTENCE
+  - C-LIST
+  - C-DEPENDENCY
+  - C-OBSERVABILITY
+  - C-DEPLOYMENT
+  - C-RESOURCE
+  - BR-AUTHN
+  - BR-AUTHZ
+  - BR-VALIDATION
+  - BR-IDEMPOTENCY
+  - BR-DURABILITY
+  - BR-SECRET
+outcomes:
+  - J-CREATE.CREATED
+  - J-READ.LISTED
+  - J-UPDATE.UPDATED
+  - J-DELETE.DELETED
+  - J-RUN.STARTED
+  - J-RUN.PERSISTED_ACROSS_RESTART
+acceptance:
+  - A-CREATE-001
+  - A-VALIDATION-001
+  - A-VALIDATION-BODY-001
+  - A-AUTHN-001
+  - A-AUTHZ-001
+  - A-IDEMPOTENCY-POST-001
+  - A-IDEMPOTENCY-PUT-001
+  - A-IDEMPOTENCY-DELETE-001
+  - A-READ-LIST-001
+  - A-LIST-PAGINATION-001
+  - A-UPDATE-PATCH-001
+  - A-CONCURRENCY-PUT-001
+  - A-READ-NOT-FOUND-001
+  - A-PERSIST-RESTART-001
+  - A-PERSIST-ATOMIC-001
+  - A-MIGRATION-001
+  - A-ERRORS-001
+  - A-OBSERVABILITY-001
+  - A-HEALTH-001
+  - A-DEPLOY-VERSION-001
+  - A-RESOURCE-QUOTA-001
+  - A-DEPENDENCY-RECOVERY-001
+  - A-STARTUP-FAILFAST-001
+  - A-STARTUP-CLI-001
+depends_on: []
+baseline: "none - first Slice, parent Baseline #0"
+preserve:
+  - "本 Slice 的 24 个冻结 case 进入 Spine 后只增不减：后续候选必须在同一 case 集上重跑"
+  - "错误信封形状 {error:{code,message,request_id}} 与状态码语义不得被后续修改破坏"
+  - "已提交数据的重启可读性是既有能力，后续 Slice 不得以迁移或重构为名丢失"
+code_conventions:
+  - "数据访问与事务：所有写操作走 src/db.mjs 的 withTransaction，SQLite 使用 BEGIN IMMEDIATE；迁移只在 src/migrations.mjs 中按 migrations/*.sql 顺序执行"
+  - "身份与授权：凭据到所有者的映射只在 src/auth.mjs 解析；每个资源操作在 src/domain/todos.mjs 中先校验 owner_id 再读写"
+  - "错误处理与日志：错误一律经 src/errors.mjs 的 AppError 构造固定信封；日志只经 src/logging.mjs 输出单行 JSON"
+  - "目录与模块：src/ 只放运行时代码，scripts/ 只放门禁与构建命令，tests/harness 负责执行与记录结果，tests/acceptance/driver 只做观测不做判定"
+  - "命名与状态：HTTP 错误码使用 snake_case 常量；待办项的 version 从 1 开始且每次成功写入自增 1"
+  - "共享抽象：HTTP 路由与请求体读取集中在 src/http/，领域层不直接接触 req/res；配置只在 src/config.mjs 读取环境变量"
+attempt_budget:
+  same_root_cause_limit: 3
+  total_attempt_limit: 8
+  no_progress_window: 3
+  replan_limit: 2
+migration_steps:
+  - "001_init.sql 创建 todos 与 schema_migrations 表"
+  - "启动时按文件名顺序应用未记录的迁移，成功后写入 schema_migrations"
+  - "迁移在监听端口之前完成；失败时进程以非零退出码结束"
+  - "回滚方式：迁移只做增量（IF NOT EXISTS），删除数据库文件即可回到空状态"
+external_side_effects: []
