@@ -1,0 +1,20 @@
+{
+  "run_key": "37303773247-1",
+  "status": "blocked",
+  "errors": [
+    "exactly one complete evidence record required"
+  ],
+  "receipt": {
+    "repository": "wangxiaow/todo-api-delivery",
+    "run_id": 37303773247,
+    "run_attempt": 1,
+    "run_key": "37303773247-1",
+    "verifier_revision": "f1dc679623f06dfcd8dcac891566f66b5019dc73",
+    "conclusion": "failure",
+    "path": ".github/workflows/verify.yml",
+    "event": "workflow_dispatch",
+    "head_branch": "main",
+    "content_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "derived_attempt": false
+}
